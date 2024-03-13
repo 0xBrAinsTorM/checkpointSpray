@@ -4,4 +4,4 @@ Password Spraying tool for CheckPoint VPN access. Creds to lutzenfried/checkpoin
 
 Updates:
 
-As pycryptodome removed some functions we needed to rewrite the script to leverade the new functionalities.
+As pycryptodome removed some functions we needed to rewrite the script to leverage the new functionalities.
